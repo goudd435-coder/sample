@@ -1,0 +1,6 @@
+{
+  "name": "Annant Homeopathy Clinic",
+  "description": "Official website and appointment booking portal for Annant Homeopathy Clinic in Jaipur. Patients can book slots, read testimonials, view FAQs, and the doctor can manage approvals and rejections via a secure admin panel with WhatsApp notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
