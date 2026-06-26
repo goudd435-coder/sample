@@ -6,8 +6,8 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Project ID and Publishable Key provided by the user
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://cxxjaakrvuwwxpzwwewi.supabase.co';
-const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_sUNG7RhxDcTfYATM7xtvWw_meHfxwyG';
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://vyduvldasmsswhojddpz.supabase.co';
+const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_BoBHkQv7M7yNgQgI5tFO6g_acnJmMJ4';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
