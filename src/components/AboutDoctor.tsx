@@ -6,6 +6,8 @@
 import { motion } from 'motion/react';
 import { GraduationCap, Briefcase, HeartHandshake, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { CLINIC_INFO } from '../data/mockData';
+// @ts-ignore
+import drAnantPhoto from '../assets/images/dr_anant_real_photo_1782378021238.jpg';
 
 export default function AboutDoctor() {
   const qualifications = [
@@ -57,9 +59,13 @@ export default function AboutDoctor() {
                 <div className="flex justify-center">
                   <div className="relative">
                     <div className="absolute -inset-1 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 opacity-20 blur" />
-                    <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 font-display text-4xl font-extrabold shadow-inner">
-                      DA
-                    </div>
+                    <img
+                      src={drAnantPhoto}
+                      alt={CLINIC_INFO.doctorName}
+                      referrerPolicy="no-referrer"
+                      className="relative h-32 w-32 rounded-full object-cover object-center shadow-md border border-emerald-200 dark:border-emerald-800"
+                      id="about-doctor-avatar-img"
+                    />
                   </div>
                 </div>
 

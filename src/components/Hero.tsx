@@ -6,6 +6,8 @@
 import { motion } from 'motion/react';
 import { Star, Calendar, Phone, Award, Users, CheckCircle, ShieldCheck } from 'lucide-react';
 import { CLINIC_INFO } from '../data/mockData';
+// @ts-ignore
+import drAnantPhoto from '../assets/images/dr_anant_real_photo_1782378021238.jpg';
 
 export default function Hero() {
   const handleScrollTo = (id: string) => {
@@ -172,11 +174,14 @@ export default function Hero() {
               <div className="relative overflow-hidden rounded-[40px] bg-white border-b-[8px] border-emerald-500 shadow-2xl dark:bg-gray-900 dark:border-gray-850 p-5 space-y-5">
                 
                 {/* Visual Avatar Placeholder representing clinical consultation */}
-                <div className="relative h-72 w-full rounded-2xl bg-gradient-to-br from-emerald-500/10 to-teal-600/20 dark:from-emerald-950/40 dark:to-teal-950/30 flex flex-col items-center justify-center overflow-hidden border border-emerald-100/30 dark:border-emerald-850/20">
-                  {/* Doctor Silhouette Vector Artwork */}
-                  <svg className="h-44 w-44 text-emerald-600/80 dark:text-emerald-400/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
+                <div className="relative h-72 w-full rounded-2xl flex flex-col items-center justify-center overflow-hidden border border-emerald-100/30 dark:border-emerald-850/20">
+                  <img
+                    src={drAnantPhoto}
+                    alt={CLINIC_INFO.doctorName}
+                    referrerPolicy="no-referrer"
+                    className="absolute inset-0 h-full w-full object-cover object-center"
+                    id="hero-doctor-avatar-img"
+                  />
                   
                   {/* Glowing Medical Cross Badge overlay */}
                   <div className="absolute top-4 right-4 flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 animate-pulse">

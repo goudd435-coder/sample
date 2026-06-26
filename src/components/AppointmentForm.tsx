@@ -6,7 +6,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { CheckCircle, Calendar, User, Phone, Clipboard, Clock, MessageSquare, AlertCircle } from 'lucide-react';
-import { addAppointment, getAppointments } from '../services/storage';
+import { addAppointment, getAppointments, fetchAppointmentsFromSupabase } from '../services/storage';
 
 const TIME_SLOTS = [
   '10:00 AM',
@@ -32,13 +32,29 @@ export default function AppointmentForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successData, setSuccessData] = useState<any | null>(null);
   const [error, setError] = useState('');
+  const [appointmentsList, setAppointmentsList] = useState<any[]>([]);
 
   // Get today's date string in YYYY-MM-DD format to prevent past bookings
   const todayStr = new Date().toISOString().split('T')[0];
 
+  // Fetch initial appointments from local cache and sync with Supabase
+  useEffect(() => {
+    setAppointmentsList(getAppointments());
+    
+    fetchAppointmentsFromSupabase()
+      .then(freshList => {
+        if (freshList && freshList.length > 0) {
+          setAppointmentsList(freshList);
+        }
+      })
+      .catch(err => {
+        console.warn('Form could not sync with Supabase:', err);
+      });
+  }, []);
+
   // Dynamically calculate available time slots for the chosen date
   const approvedSlots = date
-    ? getAppointments()
+    ? appointmentsList
         .filter(apt => apt.date === date && apt.status === 'approved')
         .map(apt => apt.time)
     : [];

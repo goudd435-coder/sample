@@ -20,13 +20,16 @@ import {
   ExternalLink,
   ChevronDown,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Database,
+  Loader2
 } from 'lucide-react';
 import { 
   getAppointments, 
   updateAppointmentStatus, 
   getDashboardStats, 
-  DashboardStats 
+  DashboardStats,
+  fetchAppointmentsFromSupabase
 } from '../services/storage';
 import { Appointment } from '../types';
 import { CLINIC_INFO } from '../data/mockData';
@@ -38,6 +41,9 @@ interface AdminPanelProps {
 export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [stats, setStats] = useState<DashboardStats>({ total: 0, pending: 0, approved: 0, rejected: 0, today: 0 });
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [showDbGuide, setShowDbGuide] = useState(false);
   
   // Search and Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,10 +65,27 @@ export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
     refreshData();
   }, []);
 
-  const refreshData = () => {
-    const list = getAppointments();
-    setAppointments(list);
+  const refreshData = async () => {
+    // 1. Instantly pull cached records from local storage
+    const cachedList = getAppointments();
+    setAppointments(cachedList);
     setStats(getDashboardStats());
+
+    // 2. Refresh from Supabase in background
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const freshList = await fetchAppointmentsFromSupabase();
+      if (freshList) {
+        setAppointments(freshList);
+        setStats(getDashboardStats());
+      }
+    } catch (err) {
+      console.error('Supabase fetch failed:', err);
+      setSyncError('Using offline storage cache. Run SQL query in Supabase to sync.');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleStatusChange = (id: string, newStatus: 'approved' | 'rejected') => {
@@ -119,9 +142,35 @@ export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
         {/* Workspace Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-gray-200/85 pb-6 dark:border-gray-800" id="admin-ws-header">
           <div className="space-y-1">
-            <span className="font-sans text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
-              Doctor Workspace
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-sans text-xs font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                Doctor Workspace
+              </span>
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
+                isSyncing 
+                  ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' 
+                  : syncError 
+                    ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400' 
+                    : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+              }`}>
+                {isSyncing ? (
+                  <>
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    Syncing Database...
+                  </>
+                ) : syncError ? (
+                  <>
+                    <AlertCircle className="h-2.5 w-2.5" />
+                    Offline Cache Active
+                  </>
+                ) : (
+                  <>
+                    <Database className="h-2.5 w-2.5" />
+                    Connected to Supabase
+                  </>
+                )}
+              </span>
+            </div>
             <h2 className="font-display text-2xl font-extrabold text-gray-900 dark:text-white sm:text-3xl">
               Clinic Appointment Board
             </h2>
@@ -131,11 +180,20 @@ export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
           </div>
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setShowDbGuide(!showDbGuide)}
+              className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-900 cursor-pointer"
+              id="btn-admin-db-guide"
+            >
+              <Database className="h-3.5 w-3.5" />
+              Database Config SQL
+            </button>
+            <button
               onClick={refreshData}
-              className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 cursor-pointer"
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 cursor-pointer disabled:opacity-50"
               id="btn-admin-refresh"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
               Refresh Data
             </button>
             <button
@@ -147,6 +205,73 @@ export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
             </button>
           </div>
         </div>
+
+        {/* Database Config SQL collapsible helper */}
+        {showDbGuide && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-emerald-100 bg-emerald-50/30 p-5 dark:border-emerald-900/30 dark:bg-emerald-950/10 space-y-3"
+          >
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  Supabase Setup Instructions
+                </h4>
+                <p className="text-xs text-emerald-700 dark:text-emerald-450">
+                  We've successfully linked your Supabase credentials! To enable persistent storage, copy the SQL below and run it inside your <strong className="font-semibold text-emerald-800 dark:text-emerald-300">Supabase SQL Editor</strong> to construct the table and Row Level Security rules.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowDbGuide(false)}
+                className="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            
+            <div className="relative">
+              <pre className="overflow-x-auto rounded-xl bg-gray-900 p-4 text-[11px] font-mono text-emerald-400 leading-relaxed border border-gray-850">
+{`-- Create appointments table
+CREATE TABLE appointments (
+  id TEXT PRIMARY KEY,
+  patient_name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  whatsapp TEXT NOT NULL,
+  date TEXT NOT NULL,
+  time TEXT NOT NULL,
+  symptoms TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  notes TEXT
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
+
+-- Allow anonymous select/insert/update access so form and board work seamlessly
+CREATE POLICY "Allow public access" ON appointments FOR ALL USING (true) WITH CHECK (true);`}
+              </pre>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`CREATE TABLE appointments (\n  id TEXT PRIMARY KEY,\n  patient_name TEXT NOT NULL,\n  phone TEXT NOT NULL,\n  whatsapp TEXT NOT NULL,\n  date TEXT NOT NULL,\n  time TEXT NOT NULL,\n  symptoms TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'pending',\n  created_at TEXT NOT NULL,\n  notes TEXT\n);\n\nALTER TABLE appointments ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow public access" ON appointments FOR ALL USING (true) WITH CHECK (true);`);
+                  alert("SQL setup script copied to clipboard!");
+                }}
+                className="absolute right-3 top-3 rounded bg-gray-800 px-2 py-1 text-[10px] font-semibold text-white hover:bg-gray-700"
+              >
+                Copy SQL
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {syncError && (
+          <div className="rounded-2xl bg-rose-50 border border-rose-100 p-3 flex items-center gap-2 text-xs text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/30 dark:text-rose-400">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{syncError} <button onClick={() => setShowDbGuide(true)} className="underline font-semibold text-rose-800 dark:text-rose-300">Show setup guide</button>.</span>
+          </div>
+        )}
 
         {/* Dynamic Stats Grid */}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-5" id="admin-stats-grid">
