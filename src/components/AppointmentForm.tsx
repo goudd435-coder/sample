@@ -68,7 +68,7 @@ export default function AppointmentForm() {
     }
   }, [date, time]);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -86,33 +86,34 @@ export default function AppointmentForm() {
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      try {
-        const result = addAppointment({
-          patientName: patientName.trim(),
-          phone: phone.trim(),
-          whatsapp: whatsappNum.trim(),
-          date,
-          time,
-          symptoms: symptoms.trim()
-        });
-        
-        setSuccessData(result);
-        
-        // Reset Form
-        setPatientName('');
-        setPhone('');
-        setWhatsapp('');
-        setSameAsPhone(true);
-        setDate('');
-        setTime('');
-        setSymptoms('');
-      } catch (e) {
-        setError('Failed to book appointment. Please try again.');
-      } finally {
-        setIsSubmitting(false);
-      }
-    }, 1000);
+    try {
+      const result = await addAppointment({
+        patientName: patientName.trim(),
+        phone: phone.trim(),
+        whatsapp: whatsappNum.trim(),
+        date,
+        time,
+        symptoms: symptoms.trim()
+      });
+      
+      setSuccessData(result);
+      
+      // Update local slots list
+      setAppointmentsList(prev => [result, ...prev]);
+      
+      // Reset Form
+      setPatientName('');
+      setPhone('');
+      setWhatsapp('');
+      setSameAsPhone(true);
+      setDate('');
+      setTime('');
+      setSymptoms('');
+    } catch (e) {
+      setError('Failed to book appointment. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handlePhoneChange = (val: string) => {

@@ -33,6 +33,7 @@ import {
 } from '../services/storage';
 import { Appointment } from '../types';
 import { CLINIC_INFO } from '../data/mockData';
+import { supabase } from '../lib/supabase';
 
 interface AdminPanelProps {
   onBackToHome: () => void;
@@ -62,17 +63,47 @@ export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
   } | null>(null);
 
   useEffect(() => {
-    refreshData();
+    refreshData(false);
+
+    // 1. Supabase Realtime Subscription
+    // Listens to insert, update, or delete events on the 'appointments' table
+    console.log('Subscribing to Supabase Realtime updates on table "appointments"...');
+    const channel = supabase
+      .channel('appointments-realtime-admin')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'appointments' },
+        (payload) => {
+          console.log('Real-time database change detected in AdminPanel:', payload);
+          // Silently refresh the list and update stats
+          refreshData(true);
+        }
+      )
+      .subscribe((status) => {
+        console.log('Supabase Realtime connection status:', status);
+      });
+
+    // 2. Reliable 10-second polling fallback (in case publication/realtime is not enabled in Supabase console)
+    const interval = setInterval(() => {
+      refreshData(true);
+    }, 10000);
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  const refreshData = async () => {
-    // 1. Instantly pull cached records from local storage
-    const cachedList = getAppointments();
-    setAppointments(cachedList);
-    setStats(getDashboardStats());
+  const refreshData = async (silent: boolean = false) => {
+    // 1. Instantly pull cached records from local storage if not silent
+    if (!silent) {
+      const cachedList = getAppointments();
+      setAppointments(cachedList);
+      setStats(getDashboardStats());
+    }
 
     // 2. Refresh from Supabase in background
-    setIsSyncing(true);
+    if (!silent) setIsSyncing(true);
     setSyncError(null);
     try {
       const freshList = await fetchAppointmentsFromSupabase();
@@ -82,34 +113,43 @@ export default function AdminPanel({ onBackToHome }: AdminPanelProps) {
       }
     } catch (err) {
       console.error('Supabase fetch failed:', err);
-      setSyncError('Using offline storage cache. Run SQL query in Supabase to sync.');
+      if (!silent) {
+        setSyncError('Using offline storage cache. Run SQL query in Supabase to sync.');
+      }
     } finally {
-      setIsSyncing(false);
+      if (!silent) setIsSyncing(false);
     }
   };
 
-  const handleStatusChange = (id: string, newStatus: 'approved' | 'rejected') => {
-    const updated = updateAppointmentStatus(id, newStatus);
-    if (updated) {
-      refreshData();
-      if (selectedAppointment?.id === id) {
-        setSelectedAppointment(updated);
-      }
-      
-      // Auto generate the required WhatsApp message template
-      let messageText = '';
-      if (newStatus === 'approved') {
-        messageText = `Hello ${updated.patientName},\n\nYour appointment with Dr. Anant at ANNANT HOMEOPATHY CLINIC has been approved.\n\nDate: ${new Date(updated.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\nTime: ${updated.time}\n\nClinic Address:\nMangyawas Road, Opposite Jyana Paradise, Mansarovar, Jaipur.\n\nFor any queries call:\n8306630477\n\nThank you.`;
-      } else {
-        messageText = `Hello ${updated.patientName},\n\nYour requested appointment could not be approved for the selected time slot.\n\nPlease book another slot or contact us directly at 8306630477.\n\nThank you.\nANNANT HOMEOPATHY CLINIC`;
-      }
+  const handleStatusChange = async (id: string, newStatus: 'approved' | 'rejected') => {
+    setSyncError(null);
+    try {
+      const updated = await updateAppointmentStatus(id, newStatus);
+      if (updated) {
+        // Silent refresh to keep state completely consistent
+        refreshData(true);
+        if (selectedAppointment?.id === id) {
+          setSelectedAppointment(updated);
+        }
+        
+        // Auto generate the required WhatsApp message template
+        let messageText = '';
+        if (newStatus === 'approved') {
+          messageText = `Hello ${updated.patientName},\n\nYour appointment with Dr. Anant at ANNANT HOMEOPATHY CLINIC has been approved.\n\nDate: ${new Date(updated.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\nTime: ${updated.time}\n\nClinic Address:\nMangyawas Road, Opposite Jyana Paradise, Mansarovar, Jaipur.\n\nFor any queries call:\n8306630477\n\nThank you.`;
+        } else {
+          messageText = `Hello ${updated.patientName},\n\nYour requested appointment could not be approved for the selected time slot.\n\nPlease book another slot or contact us directly at 8306630477.\n\nThank you.\nANNANT HOMEOPATHY CLINIC`;
+        }
 
-      setWhatsappModal({
-        isOpen: true,
-        appointment: updated,
-        type: newStatus,
-        messageText
-      });
+        setWhatsappModal({
+          isOpen: true,
+          appointment: updated,
+          type: newStatus,
+          messageText
+        });
+      }
+    } catch (err: any) {
+      console.error('Failed to update status on Supabase:', err);
+      setSyncError(`Failed to update status: ${err.message || err}`);
     }
   };
 
@@ -251,11 +291,14 @@ CREATE TABLE appointments (
 ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
 
 -- Allow anonymous select/insert/update access so form and board work seamlessly
-CREATE POLICY "Allow public access" ON appointments FOR ALL USING (true) WITH CHECK (true);`}
+CREATE POLICY "Allow public access" ON appointments FOR ALL USING (true) WITH CHECK (true);
+
+-- Enable Supabase Realtime for the table so newly booked appointments appear instantly
+ALTER PUBLICATION supabase_realtime ADD TABLE appointments;`}
               </pre>
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(`CREATE TABLE appointments (\n  id TEXT PRIMARY KEY,\n  patient_name TEXT NOT NULL,\n  phone TEXT NOT NULL,\n  whatsapp TEXT NOT NULL,\n  date TEXT NOT NULL,\n  time TEXT NOT NULL,\n  symptoms TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'pending',\n  created_at TEXT NOT NULL,\n  notes TEXT\n);\n\nALTER TABLE appointments ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow public access" ON appointments FOR ALL USING (true) WITH CHECK (true);`);
+                  navigator.clipboard.writeText(`CREATE TABLE appointments (\n  id TEXT PRIMARY KEY,\n  patient_name TEXT NOT NULL,\n  phone TEXT NOT NULL,\n  whatsapp TEXT NOT NULL,\n  date TEXT NOT NULL,\n  time TEXT NOT NULL,\n  symptoms TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'pending',\n  created_at TEXT NOT NULL,\n  notes TEXT\n);\n\nALTER TABLE appointments ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow public access" ON appointments FOR ALL USING (true) WITH CHECK (true);\n\nALTER PUBLICATION supabase_realtime ADD TABLE appointments;`);
                   alert("SQL setup script copied to clipboard!");
                 }}
                 className="absolute right-3 top-3 rounded bg-gray-800 px-2 py-1 text-[10px] font-semibold text-white hover:bg-gray-700"

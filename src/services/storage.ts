@@ -35,12 +35,11 @@ function mapFromDB(row: any): Appointment {
   };
 }
 
-// Map client Appointment to database format (providing both snake_case and camelCase to match any table structure)
+// Map client Appointment to database format (only using exact snake_case columns from our SQL schema to avoid Supabase undefined_column errors)
 function mapToDB(apt: Appointment) {
   return {
     id: apt.id,
     patient_name: apt.patientName,
-    patientName: apt.patientName, // supports camelCase table column
     phone: apt.phone,
     whatsapp: apt.whatsapp,
     date: apt.date,
@@ -48,8 +47,7 @@ function mapToDB(apt: Appointment) {
     symptoms: apt.symptoms,
     status: apt.status,
     created_at: apt.createdAt,
-    createdAt: apt.createdAt, // supports camelCase table column
-    notes: apt.notes
+    notes: apt.notes || null
   };
 }
 
@@ -121,7 +119,7 @@ async function syncLocalToSupabase(apts: Appointment[]) {
 }
 
 // 3. Add appointment (Sync & Local)
-export function addAppointment(newApt: Omit<Appointment, 'id' | 'status' | 'createdAt'>): Appointment {
+export async function addAppointment(newApt: Omit<Appointment, 'id' | 'status' | 'createdAt'>): Promise<Appointment> {
   const appointments = getAppointments();
   const appointment: Appointment = {
     ...newApt,
@@ -130,47 +128,76 @@ export function addAppointment(newApt: Omit<Appointment, 'id' | 'status' | 'crea
     createdAt: new Date().toISOString()
   };
   
-  // Save locally first for instant feedback
+  // Save locally first for instant feedback and backup
   appointments.unshift(appointment);
   saveAppointments(appointments);
 
-  // Sync to Supabase in the background
+  // Sync to Supabase and wait for confirmation
   const dbRow = mapToDB(appointment);
-  supabase
-    .from('appointments')
-    .insert([dbRow])
-    .then(({ error }) => {
-      if (error) {
-        console.error('Background Supabase insert error:', error.message);
-      } else {
-        console.log('Successfully saved to Supabase');
-      }
-    });
+  console.log('Attempting to insert appointment into Supabase:', dbRow);
+  try {
+    const { error } = await supabase.from('appointments').insert([dbRow]);
+    if (error) {
+      console.error('Supabase insert failed with DB error:', error);
+      throw new Error(error.message || 'Supabase database insert failed');
+    } else {
+      console.log('Successfully saved to Supabase table "appointments"');
+    }
+  } catch (err: any) {
+    console.error('Network or database exception in addAppointment:', err);
+    throw err;
+  }
 
   return appointment;
 }
 
-// 4. Update appointment status (Sync & Local)
-export function updateAppointmentStatus(id: string, status: 'approved' | 'rejected'): Appointment | null {
+// 4. Update appointment status (Sync & Local with database error handling and state rollback)
+export async function updateAppointmentStatus(id: string, status: 'approved' | 'rejected'): Promise<Appointment | null> {
   const appointments = getAppointments();
   const index = appointments.findIndex(a => a.id === id);
   if (index === -1) return null;
   
+  const originalStatus = appointments[index].status;
+  
+  // Optimistically update local cache
   appointments[index].status = status;
   saveAppointments(appointments);
 
-  // Sync update to Supabase in the background
-  supabase
-    .from('appointments')
-    .update({ status })
-    .eq('id', id)
-    .then(({ error }) => {
-      if (error) {
-        console.error('Background Supabase status update error:', error.message);
-      } else {
-        console.log('Successfully updated status in Supabase');
+  console.log(`Attempting to update status to "${status}" for appointment ID: ${id} in Supabase`);
+  try {
+    const { error } = await supabase
+      .from('appointments')
+      .update({ status })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Supabase status update failed with DB error:', error);
+      
+      // Rollback local cache on error
+      const rollbackApts = getAppointments();
+      const rbIdx = rollbackApts.findIndex(a => a.id === id);
+      if (rbIdx !== -1) {
+        rollbackApts[rbIdx].status = originalStatus;
+        saveAppointments(rollbackApts);
       }
-    });
+      
+      throw new Error(error.message || 'Supabase database update failed');
+    } else {
+      console.log(`Successfully updated status to "${status}" in Supabase for ID: ${id}`);
+    }
+  } catch (err: any) {
+    console.error('Network or database exception in updateAppointmentStatus:', err);
+    
+    // Rollback local cache on error
+    const rollbackApts = getAppointments();
+    const rbIdx = rollbackApts.findIndex(a => a.id === id);
+    if (rbIdx !== -1) {
+      rollbackApts[rbIdx].status = originalStatus;
+      saveAppointments(rollbackApts);
+    }
+    
+    throw err;
+  }
 
   return appointments[index];
 }
